@@ -100,10 +100,11 @@ object StreamingExample {
     *         - number of movies where the actor played since the beginning of time
     */
   def task1(actorsOfMovies: InputDStream[String]): DStream[(String, Long)] = {
-
-    // == DELETE THE NEXT LINE AND ADD YOUR OWN IMPLEMENTATION ==
-    actorsOfMovies.map(line => ("Chuck Norris!", 100000L))
-
+    val updateFunction = (newMovieCounts: Seq[Long], state: Option[Long]) => {
+      val newMovieCount = state.getOrElse(0L) + newMovieCounts.size // we can use size, since we know that all counts will be 1
+      Some(newMovieCount)
+    }
+    actorsOfMovies.map(line => (line.split('\t')(0), 1L)).updateStateByKey(updateFunction)
   }
 
 
@@ -122,9 +123,15 @@ object StreamingExample {
     */
   def task2(actorsOfMovies: InputDStream[String], movieRatingEvents: InputDStream[String]): DStream[(String, Long, Float)] = {
 
-    // == DELETE THE NEXT LINE AND ADD YOUR OWN IMPLEMENTATION ==
-    actorsOfMovies.map(line => ("Chuck Norris!", 10000000L, 10.0f))
+    val actorMovieTuples = actorsOfMovies.map(line => line.split('\t')).map{ case Array(actor: String, movieName: String, movieYear: String) => ((movieName, movieYear.toInt), actor) }
+    val ratingMovieTuples = movieRatingEvents.map(line => line.split('\t')).map{ case Array(rating: String, movieName: String, movieYear: String) => ((movieName, movieYear.toInt), rating.toFloat) }
 
+    val actorsWithVotesAndRatings = actorMovieTuples.join(ratingMovieTuples).map{ case (_, (actor, rating)) => (actor, (1L, rating))}
+
+    val updateFunction = (newRatingsAndVotes: Seq[(Long, Float)], state: Option[(Long, Float)]) => {
+      Some(newRatingsAndVotes.fold(state.getOrElse(0L, 0f)){ case ((rating1, voteCount1), (rating2, voteCount2)) => (rating1 + rating2, voteCount1 + voteCount2)})
+    }
+    actorsWithVotesAndRatings.updateStateByKey(updateFunction).map{ case (actor, (voteSum, ratingSum)) => (actor, voteSum * 1000L, ratingSum / voteSum) }
   }
 
 
@@ -143,8 +150,10 @@ object StreamingExample {
             numberOfMoviesByActors: DStream[(String, Long)],
             minimumNumberOfMovies: Int): DStream[(String, Float, Long)] = {
 
-    // == DELETE THE NEXT LINE AND ADD YOUR OWN IMPLEMENTATION ==
-    numberOfMoviesByActors.map(line => ("Chuck Norris!", 10.0f, 100000L))
+    val actorsWithVotesAndRatings = actorRatingsSinceBeginningOfTime.map{case (actor, numVotes, rating) => (actor, (numVotes, rating)) }
+
+    numberOfMoviesByActors.filter(_._2 >= minimumNumberOfMovies).join(actorsWithVotesAndRatings)
+      .map{ case (actor, (numMovies, (_, averageRating))) => (actor, averageRating, numMovies) }
 
   }
 
